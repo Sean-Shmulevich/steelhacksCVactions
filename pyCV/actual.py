@@ -4,45 +4,39 @@
 #   • While pinched, move hand up/down to scroll (smooth Quartz CGEvent if available).
 #   • Cursor is tethered to hand for spatial feedback.
 
-import os, time, math
+import argparse
+import time
+import sys
+import math
 import numpy as np
 import cv2
+import mediapipe as mp
 
-# ---- Quartz (scroll + cursor) ----
-USE_QUARTZ = True
-try:
-    from Quartz.CoreGraphics import (
-        CGEventCreateScrollWheelEvent, CGEventPost, kCGHIDEventTap,
-        kCGScrollEventUnitLine, CGWarpMouseCursorPosition
-    )
-    from Quartz import CGMainDisplayID, CGDisplayBounds
-except Exception:
-    USE_QUARTZ = False
+# only for mac
+from Quartz.CoreGraphics import (
+    CGEventCreateScrollWheelEvent, CGEventPost, kCGHIDEventTap,
+    kCGScrollEventUnitLine, CGWarpMouseCursorPosition
+)
+from Quartz import CGMainDisplayID, CGDisplayBounds
 
 # ---- MediaPipe Hands ----
-import mediapipe as mp
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
 # ---------- macOS actions ----------
 def smooth_scroll_lines(lines: int):
     """positive = up, negative = down (Quartz uses inverted sign)"""
+    ev = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitLine, 1, int(lines))
+    CGEventPost(kCGHIDEventTap, ev)
     if lines == 0:
         return
-    if USE_QUARTZ:
-        ev = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitLine, 1, int(lines))
-        CGEventPost(kCGHIDEventTap, ev)
-    else:
-        # Fallback: burst of Up/Down arrows via AppleScript
-        code = 126 if lines > 0 else 125  # Up / Down
-        for _ in range(abs(int(lines))):
-            os.system(f'osascript -e \'tell application "System Events" to key code {code}\'')
+
+    ev = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitLine, 1, int(lines))
+    CGEventPost(kCGHIDEventTap, ev)
 
 def get_screen_size():
-    if USE_QUARTZ:
-        b = CGDisplayBounds(CGMainDisplayID())
-        return int(b.size.width), int(b.size.height)
-    return 1440, 900  # fallback guess
+    b = CGDisplayBounds(CGMainDisplayID())
+    return int(b.size.width), int(b.size.height)
 
 def move_cursor_norm(nx, ny):
     """nx, ny in [0,1] (camera-normalized). Map to screen pixels and warp cursor."""
@@ -50,8 +44,7 @@ def move_cursor_norm(nx, ny):
     nx = min(max(nx, 0.01), 0.99)
     ny = min(max(ny, 0.01), 0.99)
     x = int(nx * sw); y = int(ny * sh)
-    if USE_QUARTZ:
-        CGWarpMouseCursorPosition((x, y))
+    CGWarpMouseCursorPosition((x, y))
 
 # ---------- Helpers & tuning ----------
 TIP = [4, 8, 12, 16, 20]     # thumb, index, middle, ring, pinky
@@ -110,11 +103,10 @@ class StablePinch:
 
         return self.state, self.v
 
-# ---------- Main loop ----------
-def main():
+def init_system():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("Camera not found."); return
+        raise RuntimeError("Camera not found.")
 
     hands = mp_hands.Hands(
         model_complexity=0,
@@ -123,8 +115,14 @@ def main():
         min_tracking_confidence=0.6
     )
 
-    # New pinch detector
     pinch = StablePinch(PINCH_ON_THR, PINCH_OFF_THR, PINCH_EMA_A, PINCH_DEBOUNCE)
+
+    return cap, hands, pinch
+
+
+# ---------- Main loop ----------
+def main(camera = False):
+    cap, hands, pinch = init_system()
 
     pinched = False
     scrolling = False
@@ -205,13 +203,15 @@ def main():
             if scrolling: hud.append("SCROLL")
 
         # HUD & preview
-        cv2.putText(frame, " | ".join(hud) if hud else "READY", (12, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0) if pinched else (0,180,255), 2)
-        cv2.imshow("Pinch Scroll (q to quit)", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+        if camera:
+            cv2.putText(frame, " | ".join(hud) if hud else "READY", (12, 28),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0) if pinched else (0,180,255), 2)
+            cv2.imshow("Pinch Scroll (q to quit)", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'): break
 
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    main()
+    print(sys.argv)
+    main("camera" in sys.argv)

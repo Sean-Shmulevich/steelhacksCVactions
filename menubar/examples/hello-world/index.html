@@ -1,8 +1,31 @@
 <html>
   <head>
-    <title>Example App</title>
+    <title>Open Gesture</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
   </head>
-  <body>
+  <body class="bg-red-100">
     Hello World.
+    <button class="w-10 h-8 bg-red" id="run-btn">
+       Run CMD 
+    </button>
+      <pre id="output" class="mt-2 text-sm text-gray-800"></pre>
   </body>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('run-btn');
+      const output = document.getElementById('output');
+
+      btn.addEventListener('click', async () => {
+        try {
+          // const result = await window.electron.runTerminal('npx pm2 start "pipenv run python ~/handCursor.py" --name handcursor');
+          const result = await window.electron.runTerminal('npx pm2 start "(cd ~/steelhacks/pyCV && pipenv run python actual.py)" --name handtrack');
+          output.textContent = `STDOUT:\n${result.stdout}\n\nSTDERR:\n${result.stderr}`;
+        } catch (err) {
+          output.textContent = `Error: ${err}`;
+        }
+      });
+    });
+  </script>
 </html>
